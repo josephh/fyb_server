@@ -1,0 +1,20 @@
+{
+  "name": "fyb_server",
+  "version": "1.0.0",
+  "description": "test server for authentication dev",
+  "main": "server.js",
+  "scripts": {
+    "test": "test",
+    "start": "node server.js"
+  },
+  "keywords": [
+    "fyb"
+  ],
+  "author": "josephh",
+  "license": "GPL-3.0",
+  "dependencies": {
+    "express": "^4.13.3",
+    "express-jwt": "^3.3.0",
+    "jsonwebtoken": "^5.4.1"
+  }
+}
