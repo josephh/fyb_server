@@ -4,6 +4,8 @@ var validateJWT = require('express-jwt');
 var bodyParser = require('body-parser');
 var request = require('request');
 var app = express();
+var google = require('googleapis');
+var OAuth2 = google.auth.OAuth2;
 
 app.listen('4500');
 
@@ -16,13 +18,17 @@ app.use(function(req, res, next) {
     next();
 });
 
+// google details
+var GOOGLE_CLIENT_ID = '500707701090-h6ib4qve8b4rf445lpugjipn3bih9ere.apps.googleusercontent.com',
+  GOOGLE_CLIENT_SECRET = 'v4xPGZy1L4nRvax8zIp0oS-J',
+  GOOGLE_REDIRECT_URL = 'http://localhost:4200';
+
+var oauth2Client = new OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URL);
+
 // respond with "yolo" to a GET request to the root (localhost:4500)
 app.get('/', function (req, res) {
     res.send('yolo');
 });
-
-// secret used to construct json web token
-app.secret = '09htfahpkc0qyw4ukrtag0gy20ktarpkcasht';
 
 // send token to user that contains their id
 app.sendToken = function (res, userId) {
@@ -30,7 +36,7 @@ app.sendToken = function (res, userId) {
         // payload
         { userId: userId },
         // secret
-        app.secret,
+        GOOGLE_CLIENT_SECRET,
         // options
         { expiresIn: 60 }
     );
@@ -44,24 +50,78 @@ app.sendToken = function (res, userId) {
 app.post('/get-token', bodyParser.json(), function (req, res) {
 
     // get Google token from Ember: { password: googleToken }
-    var googleToken = req.body.password;
-    console.log('googleToken (password): ' + googleToken);
+    console.log(req.body);
+    var password = req.body.password, authorizationCode = req.body.username,
+      accessToken = null;
+    console.log('password: ' + password);  // this is, admittedly, confusing nomenclature for variables
+                        // (the password is actually the google access token and the username is the authorizationCode)
+    console.log('authorization code: ' + authorizationCode);
 
-    // send token to Google for validation
-    request('https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=' + googleToken, function (error, response, body) {
+    if(authorizationCode){
+      console.log('authorization code token if block...');
+      // send token to Google for validation
+      oauth2Client.getToken(authorizationCode, function(err, tokens, response) {
+        // Now tokens contains an access_token and an optional refresh_token. Save them.
+        if(!err) {
+          var token;
+          for (token in tokens){
+            console.log('next token: '+ token + '.  value = ' + tokens[token]);
+          }
+          oauth2Client.setCredentials(tokens);
+
+          console.log('\tGoogle Access Token returned');
+        }
+        else{
+          console.log('error in trying to get authorization code.');
+          console.error('err details: ' + err);
+        }
+      });
+    };
+
+    if(password) {
+      console.log('access token if block...');
+      sendToken(password, res)();
+    }
+    else {
+      sendToken(null, res)();
+    };
+
+});
+
+var sendToken = function buildAndSendToken(token, response){
+  var accessToken = null;
+
+  return function(err, token, response){
+
+    if(token == null){
+      oauth2Client.getAccessToken(function(err, t, res){
+        if(err){
+          return console.log('problem getting access token. Details: ' + err);
+        }
+        else{
+          accessToken = t;
+        }
+      });
+    };
+
+    if(accessToken){
+        request('https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=' + accessToken, function (error, response, body) {
         if (!error && response.statusCode == 200) {
             console.log('\tGoogle Token Valid');
             var userId = JSON.parse(body).user_id;
             console.log('userId in response body from Google: ' + userId);
             var userEmail = JSON.parse(body).email;
-            console.log('email in response body from Goodle: ' + userEmail);
-            app.sendToken(res, userId);
+            console.log('email in response body from Google: ' + userEmail);
+            app.sendToken(response, userId);
         } else {
             console.log('\tFailed to validate Google Token');
-            res.send({});
+            response.send({});
         }
-    });
-});
+      });
+    }
+
+  }
+};
 
 /*
  * AUTHENTICATION (Refresh token)
@@ -70,7 +130,7 @@ app.post('/refresh-token', bodyParser.json(), function(req, res) {
 
     // verify token and extract contents (including userId)
     var oldToken = req.body.token;
-    createJWT.verify(oldToken, app.secret, function (err, decodedToken) {
+    createJWT.verify(oldToken, GOOGLE_CLIENT_SECRET, function (err, decodedToken) {
         if (!err) {
             // send new token
             console.log('\tRefreshing token for user ', decodedToken.userId);
@@ -86,7 +146,7 @@ app.post('/refresh-token', bodyParser.json(), function(req, res) {
 /*
  * ENTRIES
  */
-app.get('/entries', validateJWT({secret: app.secret}), function(req, res) {
+app.get('/entries', validateJWT({secret: GOOGLE_CLIENT_SECRET}), function(req, res) {
 
     // get userId from token
     var userId = req.user.userId;
