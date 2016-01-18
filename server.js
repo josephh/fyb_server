@@ -41,8 +41,8 @@ app.post('/get-token', bodyParser.json(), function (req, res) {
       authorizationCode = req.body.username,
       accessToken = null;
 
-  console.log('FYB server >> fetch google access token using authorization code.');
   if (authorizationCode) {
+    console.log('FYB server >> authorization code provided from browser.');
     oauth2Client.getToken(authorizationCode, function(err, tokens, response) {
       /*
        * Unless error, tokens will contain an access_token and optionally a
@@ -70,6 +70,7 @@ app.post('/get-token', bodyParser.json(), function (req, res) {
       }
     });
   }else if(googleToken) {
+    console.log('FYB server >> google access token provided from browser');
     app.buildAndReturnToken(googleToken, res);
   }
 });
@@ -94,7 +95,8 @@ app.post('/refresh-token', bodyParser.json(), function(req, res) {
 /*
  * GET
  */
-app.get('/entries', validateJWT({secret: GOOGLE_CLIENT_SECRET}), function(req, res) {
+app.get('/entries', validateJWT({secret: GOOGLE_CLIENT_SECRET}),
+  function(req, res) {
 
     // get userId from token
     var userId = req.user.userId;
@@ -154,8 +156,8 @@ app.buildAndReturnToken = function buildAndSend(accessToken, res){
     + accessToken,
     function (error, response, body) {
       if (!error && response.statusCode == 200) {
-        console.log('FYB server >> Google access token successfully used to fetch token ' +
-          'info.');
+        console.log('FYB server >> Google access token successfully used to ' +
+        'fetch token info.');
         var userId = JSON.parse(body).user_id;
         console.log('\tuserId = ' + userId);
         var userEmail = JSON.parse(body).email;
