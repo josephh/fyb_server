@@ -1,13 +1,23 @@
+require('dotenv').load();
 var express = require('express');
 var createJWT = require('jsonwebtoken');
 var validateJWT = require('express-jwt');
 var bodyParser = require('body-parser');
-var request = require('request');
 var google = require('googleapis');
 var OAuth2 = google.auth.OAuth2;
+var cors = require('cors');
+var _request = require('request');
+var googleOAuthEndpoint = 'https://www.googleapis.com/oauth2/v3/token';
+var googleOAuthUserInfoEndpoint = 'https://www.googleapis.com/oauth2/v2/userinfo';
 
 var app = express(); // create the express server app ('app' by convention)
+
+app.use(cors());
+app.use(bodyParser.json());
 app.listen('4500');
+
+// in-memory hash
+var userDb = require('./src/user-db');
 
 // setup HTTP headers
 app.use(function(req, res, next) {
@@ -21,13 +31,43 @@ app.use(function(req, res, next) {
   next();
 });
 
-var GOOGLE_CLIENT_ID =
-  '500707701090-h6ib4qve8b4rf445lpugjipn3bih9ere.apps.googleusercontent.com',
-  GOOGLE_CLIENT_SECRET = 'v4xPGZy1L4nRvax8zIp0oS-J',
-  GOOGLE_REDIRECT_URL = 'http://localhost:4200';
+var FACEBOOK_APP_SECRET = 'edb4116e5ad8a479e2a52c1c9b31b9b4';
+
+var GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID,
+  GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET,
+  FYB_REDIRECT_URL = process.env.FYB_REDIRECT_URI;
 
 var oauth2Client = new OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
-  GOOGLE_REDIRECT_URL);
+  FYB_REDIRECT_URL);
+
+
+  function exchangeAuthorizationCode(authorizationCode, callback) {
+
+    var grantType = 'authorization_code';
+
+    _request.post({
+      url: googleOAuthEndpoint,
+      form: {
+        'code':          authorizationCode,
+        'client_id':     GOOGLE_CLIENT_ID,
+        'client_secret': GOOGLE_CLIENT_SECRET,
+        'redirect_uri':  FYB_REDIRECT_URL,
+        'grant_type':    grantType
+      }
+    }, function(err, httpRes, body) {
+      body = JSON.parse(body);
+
+      if (body.id_token) {
+        body.id_token = '{hidden}';
+      }
+      if (body.refresh_token) {
+        body.refresh_token = '{hidden}';
+      }
+
+      callback(err, body);
+    });
+  }
+
 
 // GET
 app.get('/', function (req, res) {
@@ -152,7 +192,7 @@ app.sendToken = function (res, userId) {
 }
 
 app.buildAndReturnToken = function buildAndSend(accessToken, res){
-  request('https://www.googleapis.com/oauth2/v1/tokeninfo?access_token='
+  _request('https://www.googleapis.com/oauth2/v1/tokeninfo?access_token='
     + accessToken,
     function (error, response, body) {
       if (!error && response.statusCode == 200) {
@@ -169,3 +209,66 @@ app.buildAndReturnToken = function buildAndSend(accessToken, res){
       }
   });
 };
+
+// signs the user in with an authorization code
+app.post('/sign-in-with-authorization-code', function(request, response) {
+  /*
+   * 1. exchange code for access token
+   * 2. Look up email from access token
+   * 3. find or create user by that email
+   * 4. sign user in
+   * 5. return user data
+   */
+
+  var authorizationCode = request.body.authorizationCode;
+  exchangeAuthorizationCode(authorizationCode, function(err, accessTokenData) {
+    var accessToken = accessTokenData.access_token;
+
+    getEmailFromAccessToken(accessToken, function(err, email) {
+      var user = userDb.findOrCreateByEmail(email);
+
+      response.send(user);
+    });
+  });
+});
+
+// this checks if the user is signed-in
+app.get('/users/:id', function(request, response) {
+  var id = request.params.id;
+
+  var user = userDb.findById(id);
+  if (user) {
+    response.send(user);
+  } else {
+    response.status(404).send('not found');
+  }
+});
+
+// this signs out the user
+app.delete('/users/:id', function(request, response) {
+  userDb.removeId(request.params.id);
+
+  response.status(204).send({});
+});
+
+app.post('/exchange-authorization-code', function(request, response) {
+  var authorizationCode = request.body.authorizationCode;
+
+  exchangeAuthorizationCode(authorizationCode, function(err, accessTokenData) {
+    if (err) {
+      console.log(err);
+    }
+    response.send(accessTokenData);
+  });
+});
+
+function getEmailFromAccessToken(accessToken, callback) {
+  var url = googleOAuthUserInfoEndpoint + '?access_token=' + accessToken;
+
+  _request.get(url, function(err, httpResponse, body) {
+    console.log('response from user info endpoint', body);
+    body = JSON.parse(body);
+
+    callback(err, body.email);
+  });
+}
