@@ -9,6 +9,8 @@ var cors = require('cors');
 var _request = require('request');
 var googleOAuthEndpoint = 'https://www.googleapis.com/oauth2/v3/token';
 var googleOAuthUserInfoEndpoint = 'https://www.googleapis.com/oauth2/v2/userinfo';
+var facebookOAuthEndpoint = 'https://graph.facebook.com/v2.5/oauth';
+var twitterOAuthEndpoint = 'https://api.twitter.com/oauth/access_token';
 
 var app = express(); // create the express server app ('app' by convention)
 
@@ -35,38 +37,35 @@ var FACEBOOK_APP_SECRET = 'edb4116e5ad8a479e2a52c1c9b31b9b4';
 
 var GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET,
+  FACEBOOK_CLIENT_ID = process.env.FACEBOOK_CLIENT_ID,
+  FACEBOOK_CLIENT_SECRET = process.env.FACEBOOK_CLIENT_SECRET,
+  TWITTER_CLIENT_ID = process.env.TWITTER_CLIENT_ID,
+  TWITTER_CLIENT_SECRET = process.env.TWITTER_CLIENT_SECRET,
   FYB_REDIRECT_URL = process.env.FYB_REDIRECT_URI;
 
 var oauth2Client = new OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
   FYB_REDIRECT_URL);
 
+function exchangeAuthorizationCode(endpoint, authForm, callback) {
 
-  function exchangeAuthorizationCode(authorizationCode, callback) {
+  var grantType = 'authorization_code';
 
-    var grantType = 'authorization_code';
+  _request.post({
+    url: endpoint,
+    form: authForm
+  }, function(err, httpRes, body) {
+    body = JSON.parse(body);
 
-    _request.post({
-      url: googleOAuthEndpoint,
-      form: {
-        'code':          authorizationCode,
-        'client_id':     GOOGLE_CLIENT_ID,
-        'client_secret': GOOGLE_CLIENT_SECRET,
-        'redirect_uri':  FYB_REDIRECT_URL,
-        'grant_type':    grantType
-      }
-    }, function(err, httpRes, body) {
-      body = JSON.parse(body);
+    if (body.id_token) {
+      body.id_token = '{hidden}';
+    }
+    if (body.refresh_token) {
+      body.refresh_token = '{hidden}';
+    }
 
-      if (body.id_token) {
-        body.id_token = '{hidden}';
-      }
-      if (body.refresh_token) {
-        body.refresh_token = '{hidden}';
-      }
-
-      callback(err, body);
-    });
-  }
+    callback(err, body);
+  });
+}
 
 
 // GET
@@ -99,7 +98,7 @@ app.post('/get-token', bodyParser.json(), function (req, res) {
           if (err) {
             return console.log('FYB server >> Problem getting access token. ' +
               ' Details: ' + err);
-          } else{
+          } else {
             accessToken = t;
             app.buildAndReturnToken(t, res);
           }
@@ -189,7 +188,7 @@ app.sendToken = function (res, userId) {
         { userId: userId }, GOOGLE_CLIENT_SECRET, { expiresIn: 60 }
     );
     res.send({ token: token });
-}
+};
 
 app.buildAndReturnToken = function buildAndSend(accessToken, res){
   _request('https://www.googleapis.com/oauth2/v1/tokeninfo?access_token='
@@ -209,28 +208,6 @@ app.buildAndReturnToken = function buildAndSend(accessToken, res){
       }
   });
 };
-
-// signs the user in with an authorization code
-app.post('/sign-in-with-authorization-code', function(request, response) {
-  /*
-   * 1. exchange code for access token
-   * 2. Look up email from access token
-   * 3. find or create user by that email
-   * 4. sign user in
-   * 5. return user data
-   */
-
-  var authorizationCode = request.body.authorizationCode;
-  exchangeAuthorizationCode(authorizationCode, function(err, accessTokenData) {
-    var accessToken = accessTokenData.access_token;
-
-    getEmailFromAccessToken(accessToken, function(err, email) {
-      var user = userDb.findOrCreateByEmail(email);
-
-      response.send(user);
-    });
-  });
-});
 
 // this checks if the user is signed-in
 app.get('/users/:id', function(request, response) {
@@ -252,14 +229,45 @@ app.delete('/users/:id', function(request, response) {
 });
 
 app.post('/exchange-authorization-code', function(request, response) {
-  var authorizationCode = request.body.authorizationCode;
+  var authorizationCode = request.body.authorizationCode,
+      provider = request.body.provider,
+      form = { code: authorizationCode, grant_type: 'authorization_code' },
+      url = '';
 
-  exchangeAuthorizationCode(authorizationCode, function(err, accessTokenData) {
+  if (provider && provider === 'google-oauth2') {
+    form.client_id = GOOGLE_CLIENT_ID;
+    form.client_secret = GOOGLE_CLIENT_SECRET;
+    form.redirect_uri = FYB_REDIRECT_URL;
+    url = googleOAuthEndpoint;
+  }
+  else if (provider && provider === 'facebook-oauth2') {
+    form.client_id = FACEBOOK_CLIENT_ID;
+    form.client_secret = FACEBOOK_CLIENT_SECRET;
+    form.redirect_uri = FYB_REDIRECT_URL;
+    url = facebookOAuthEndpoint;
+  }
+  else if (provider && provider === 'twitter-oauth1') {
+    form.client_id = TWITTER_CLIENT_ID;
+    form.client_secret = TWITTER_CLIENT_SECRET;
+    form.redirect_uri = FYB_REDIRECT_URL
+    url = twitterOAuthEndpoint;
+  }
+
+  exchangeAuthorizationCode(url, form, function(err, accessToken) {
     if (err) {
-      console.log(err);
+      return console.log(err);
     }
-    response.send(accessTokenData);
+    else {
+      getEmailFromAccessToken(accessToken, function(err, email) {
+        if (err) {
+          return console.log(err);
+        }
+        var user = userDb.findOrCreateByEmail(email);
+        response.send(user);
+      });
+    }
   });
+
 });
 
 function getEmailFromAccessToken(accessToken, callback) {
