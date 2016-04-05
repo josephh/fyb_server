@@ -56,6 +56,8 @@ function exchangeAuthorizationCode(endpoint, authForm, callback) {
   }, function(err, httpRes, body) {
     body = JSON.parse(body);
 
+    /** TODO commenting to see if this is happening too soon(?)
+
     if (body.id_token) {
       body.id_token = '{hidden}';
     }
@@ -63,6 +65,7 @@ function exchangeAuthorizationCode(endpoint, authForm, callback) {
       body.refresh_token = '{hidden}';
     }
 
+**/
     callback(err, body);
   });
 }
