@@ -20,6 +20,7 @@ app.listen('4500');
 
 // in-memory hash
 var userDb = require('./src/user-db');
+var s3Client = require('./src/s3-client');
 
 // setup HTTP headers
 app.use(function(req, res, next) {
@@ -32,8 +33,6 @@ app.use(function(req, res, next) {
   res.header('Content-Type', 'application/json');
   next();
 });
-
-var FACEBOOK_APP_SECRET = 'edb4116e5ad8a479e2a52c1c9b31b9b4';
 
 var GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET,
@@ -70,6 +69,9 @@ function exchangeAuthorizationCode(endpoint, authForm, callback) {
   });
 }
 
+app.get('/s3-signed-url', function (req, res) {
+  s3Client.getSignedUrl(req, res);
+});
 
 // GET
 app.get('/', function (req, res) {
@@ -111,7 +113,7 @@ app.post('/get-token', bodyParser.json(), function (req, res) {
         return console.error('FYB server >> Err details: ' + err);
       }
     });
-  }else if(googleToken) {
+  } else if(googleToken) {
     console.log('FYB server >> google access token provided from browser');
     app.buildAndReturnToken(googleToken, res);
   }
