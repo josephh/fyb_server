@@ -69,7 +69,7 @@ function exchangeAuthorizationCode(endpoint, authForm, callback) {
   });
 }
 
-app.get('/s3-signed-url', function (req, res) {
+app.get('/s3-signed-url', function (req, res) { 
   s3Client.getSignedUrl(req, res);
 });
 
